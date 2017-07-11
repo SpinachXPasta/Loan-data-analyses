@@ -1,0 +1,611 @@
+---
+title: "Exploration of Loan data from Prosper"
+output: html_document
+---
+
+##Introduction
+
+The dataset is from prosper.com and consists of thousands of loan information with 81 variables that are present. Prosper.com is a platform for borrowing or investing in loans. The concept of prosper is to make borrowing easy. There are many prosper variables in the data set as there are two sides of the loan, one through investment and the other through lending out amount. What i am looking at is specially the interest rates that are floating around for the loans. I want to find out about how the interest rate influenced by common indications, such as occupation or stated income.For my investigation i am only looking into the perspective of a borrower and what are the mechanics behind my rate.
+
+##Univariate Analysis
+
+The first variable that will be looked into is the Interest rates itself. Interest rates consists of two main types, one being an annual percent rate and the other being the  borrowers interest. The main difference between the two is that the annual rate takes into consideration different costs such as addition legal fees for example. The interest is a pure calculation on the monthly extra returns that are being made.
+
+
+
+```{r}
+library('scales')
+library('memisc')
+library('lattice')
+library('MASS')
+library('car')
+library('plyr')
+library('reshape')
+library('GGally')
+library(gridExtra)
+library('RColorBrewer')
+library('ggplot2')
+library(dplyr)
+library(rworldmap)
+library(ggmap)
+library(maps)
+```
+
+```{r}
+loans <- read.csv("prosperLoanData.csv")
+#names(loans)
+loan_data <- loans %>% 
+  subset(IncomeVerifiable == "True") %>% 
+  select(BorrowerAPR,BorrowerRate,LoanOriginalAmount,ProsperScore,LenderYield,EstimatedLoss,EstimatedEffectiveYield,Occupation,BorrowerState,EmploymentStatusDuration,EmploymentStatus,IsBorrowerHomeowner,CreditScoreRangeLower,CreditScoreRangeUpper,IncomeRange,StatedMonthlyIncome,Investors)
+loan_data <- subset(loan_data, !is.na(BorrowerAPR))
+loan_data$average_cs <- (loan_data$CreditScoreRangeUpper + loan_data$CreditScoreRangeLower) / 2
+str(loan_data)
+```
+```{r}
+all_states <- map_data("state")
+state_list <- read.csv("states.csv")
+colnames(state_list)[2] <-"BorrowerState"
+loan_data2 <- left_join(loan_data,state_list, by = "BorrowerState")
+loan_data2$State <- tolower(loan_data2$State)
+colnames(loan_data2)[19] <- "region"
+
+sample_loan <- select(loan_data2,BorrowerAPR,LoanOriginalAmount,region)
+sample_loan$region_freq <- 1
+sample_loan <- subset(sample_loan, !is.na(region))
+
+map_loan <- sample_loan %>% 
+  select(region,BorrowerAPR,LoanOriginalAmount,region_freq) %>% 
+  group_by(region) %>% 
+  summarise(averageAPR = mean(BorrowerAPR),averageLA = mean(LoanOriginalAmount),count = sum(region_freq))
+map_loan_final <- left_join(all_states,map_loan, by ="region")
+```
+
+
+
+
+###Borrower APR
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerAPR)) + geom_histogram(binwidth = 0.005, color = "tomato1",fill = "royalblue" ) 
+```
+
+
+
+The data seems to be well distributed. This is with a bin width of 0.005 so the bins are very fine. Due to the distribution being even, we can move along without any major transformations. The data is very well centered around the mean which can by looking at the fugure. Some of the data have high frequency which can also be seen in the figure.
+
+###BorrowerRate
+
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerRate)) + geom_histogram(binwidth = 0.005, color = "maroon1",fill = "seagreen2")
+```
+
+
+The borrower rate also seems to be well distributed, another interesting thing we can see in the data is that it shares a similar if not same mode as the Borrower APR. The two graphs (Borrower Rate and APR) have the same bin = 0.005, so the bins are the same size.
+
+
+
+```{r}
+set.seed(5555)
+loan_sample <-  select(loan_data, -IncomeRange,-CreditScoreRangeLower,-CreditScoreRangeUpper,-IsBorrowerHomeowner,-BorrowerState,-Occupation)
+loan_sample <- loan_sample[sample(1:length(loan_sample$BorrowerAPR), 1000),]
+ggpairs(loan_sample)
+```
+
+
+The grid has relationships of all the numerical variable that I have selected for the analyses. The first thing you might see if you are looking for trends is that there are a some data with high levels of correlation. The rates and yield seem to be very correlated. This will be my starting investigation.
+
+
+
+###LenderYield
+
+```{r}
+ggplot(data = loan_data,aes(x = LenderYield)) + geom_histogram(binwidth = 0.005,fill = "greenyellow", color = "indianred")  
+```
+
+
+The Lender Yield by itself looks a lot like  APR and interest rates. Yield is often associated with a return on a debt. Here the yield would be associated to the persons loaning out the money. As a whole yield seems very related to interest rate.
+
+
+
+```{r}
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+p1 <- ggplot(data = loan_data,aes(x = (BorrowerAPR))) +geom_histogram(binwidth = 0.005,fill = "white",color = "black") +
+  geom_vline(xintercept = Mode(loan_data$BorrowerAPR),color = "red") + 
+  geom_vline(xintercept = median(loan_data$BorrowerAPR),color = "green") +
+  geom_vline(xintercept = mean(loan_data$BorrowerAPR),color = "blue") +
+    scale_x_continuous(lim = c(0,0.4),breaks = seq(0,0.4,0.1))
+p2 <- ggplot(data = loan_data,aes(x = (BorrowerRate))) +geom_histogram(binwidth = 0.005,fill = "white",color = "black") +
+  geom_vline(xintercept = Mode(loan_data$BorrowerRate),color = "red") + 
+  geom_vline(xintercept = mean(loan_data$BorrowerRate),color = "blue") +
+  geom_vline(xintercept = median(loan_data$BorrowerRate),color = "green") +
+  scale_x_continuous(lim = c(0,0.4),breaks = seq(0,0.4,0.1))
+p3 <- ggplot(data = loan_data,aes(x = LenderYield)) +geom_histogram(binwidth = 0.005,fill = "white",color = "black") + 
+  geom_vline(aes(xintercept = Mode(loan_data$LenderYield)),color = "red") + 
+  geom_vline(aes(xintercept = mean(loan_data$LenderYield)),color = "blue") +
+  geom_vline(aes(xintercept = median(loan_data$LenderYield)),color = "green") +
+  scale_x_continuous(lim = c(0,0.4),breaks = seq(0,0.4,0.1))
+grid.arrange(p1,p2,p3, ncol = 1)
+
+```
+
+
+They are all in the same scale and comparing the lenders yields to the interest rate and APR we see that they have similar distribution. The red line is for the mode, the blue is for the mean and the green is for the median.With the lines it can be seen that the data have similar middle values which differ by only marginal amounts. 
+
+
+###Original Loan Amount
+
+```{r}
+ggplot(data = loan_data,aes(x = LoanOriginalAmount)) + geom_histogram(binwidth = 1000,color = "red3",fill = "black")
+```
+
+
+
+The plots shows loan amounts that were disbursed to individual loan seekers.The business model for prosper can be seen with the help of this plot. Though still an assumption but with the graph it looks like prosper is for clients looking for small loan amounts, hence it could be prospers main market.
+
+
+
+```{r}
+summary(loan_data$LoanOriginalAmount)
+```
+
+
+Looking at the descriptive statistics of the loan disbursement it can be seen that most of the loans are in between 4000$ to 12,000$. The smallest loan ammount was a 1000 dollars and the largest was 35,000. The lowest is not so less than the first quartile but the largest loan is far away from the 3rd quartile. This could mean that large loans are few and rare for prosper. If you look at the plot largest loans with high frequency would be about 25,000$.
+
+
+
+```{r}
+ggplot(data = loan_data,aes(x = log(LoanOriginalAmount))) + geom_histogram(color = "slateblue", fill = "grey") 
+```
+ 
+ 
+The distribution looks more like a bimodal distribution, there are three peaks but the two majors are high and give shape of a bimodel distribution. The data has been altered using log scale. The first data set did have a slight bit of skewness to it. What the log model does is it allows for linear regressions to happene, if a regression analysis were to be conducted. The log model is also like a scale of the magnitude of investments interms of amount not frequency.
+
+
+###Estimated Effective Yield and Estimated Loss
+
+```{r}
+p4 <- ggplot(data = loan_sample,aes(x = EstimatedEffectiveYield)) +geom_histogram(color = "darkorchid", fill = "darkorange") 
+p5 <- ggplot(data = loan_sample,aes(x = EstimatedLoss)) +geom_histogram(color = "darkorange", fill = "darkorchid")  
+grid.arrange(p4,p5,ncol = 1)  
+
+```
+
+
+The estimated loss and yield seems to be distributed nicely as well. The only concerning factor here would the presence of some out liars which spreads the max or min for the data. The outliers for Yield seems to be negative while  for estimated loss has some estimated amounts are very large in proportion which could be attributed to some of the big loan that were given through prosper. Effective yield is different from yield in terms it compounds the rates and also in this case is estimated. The negative values of yield could be a prediction for some investments not paying money.Both the variables are predictions so if consumers or investors are aware of them it could influence other variables for loan.
+
+
+###Occupation of a person/ State
+```{r}
+ ggplot(data = loan_data,aes(x = Occupation)) + geom_bar(color = "navyblue", fill = "olivedrab") +coord_flip()
+```
+
+
+This is a discrete variable. The one dissapointing thing about the occupation data is that majority of the people have described themselves as others. This could seriously hamper the credibility of the data. Though the case by filtering and comparing them to other variables we may still be able to salvage some insight.
+
+### Employement Status and duration
+
+```{r}
+p9 <- ggplot(data = subset(loan_data,EmploymentStatus != ""),aes(x = EmploymentStatus)) + geom_bar(color = "paleturquoise", fill = "palevioletred") 
+p10 <- ggplot(data = loan_data,aes(x = EmploymentStatusDuration)) + geom_bar(fill = "paleturquoise", color = "palevioletred") 
+grid.arrange(p9,p10,ncol = 1)
+```
+
+
+For employment status i had to filter out the blank data which accounts for 2000 or so slots. Looking at the duration, it gets tricky as there is a serious skewness to the data. The employed status shows that the people who are recieving loans are most employed people. This is good as it shows that prosper though not like any other loaning establishment still follows some of the norms of the market. Where this gets "abnormal" is that in terms of the employment duration we see alot of people have not worked for as long as a year but have still recieved loans. This could be due to the short time frame prosper has been active, users being young adults and recently working or  because the market might have alot of retired or not working people.
+
+
+```{r}
+ggplot(data = loan_data,aes(x = log2(EmploymentStatusDuration))) + geom_bar(binwidth = 0.1, color = "black", fill = "yellow")
+```
+
+
+
+This looks like a better distribution. Though statistically more friendly to look at is it of any value? What meaning does log base 2 for employment duration have for the plot or analyses. Log base 2 of x means what power of 2 would result int x. This would also be useful in a logistic analyses.Besides logistic regration it can be seen through the plot that the log 2 values of most of the days worked are centered around six. So it can be said that log 2 (Most of the employed duration) = 6.
+
+
+
+###Income range and stated monthly income
+
+```{r}
+p11 <- ggplot(data = loan_data,aes(x = IncomeRange)) + geom_bar(fill = "steelblue",color = "black") 
+p12 <- ggplot(data = subset(loan_data,StatedMonthlyIncome < 100000),aes(x = StatedMonthlyIncome)) + geom_bar(binwidth = 1000, fill = "black", color = "steelblue") 
+grid.arrange(p11,p12,ncol = 1)
+```
+```{r}
+summary(loan_data$StatedMonthlyIncome)
+```
+
+
+
+The stats above are for stated monthly incomes. The income range separation is well distributed. The problem at hand is the the distribution of data for stated monthly income. In the graph you see a subset of data  of stated income less than 100,000. Majority of the data is centered below 10,000.The data is still strected boyond proportions.So there wierd outliers? Should they be removed?It also seems odd to see such a large amount stated as largest monthly salary. It is hard to tell for sure if those are mistakes or if they were really the case. Statistically it would seem better to work with data closer to the mean.
+
+
+
+```{r}
+p13 <- ggplot(data = loan_data,aes(x = log(StatedMonthlyIncome))) + geom_bar(binwidth = 0.1,fill = "deeppink1") 
+p14 <- ggplot(data = loan_data,aes(x = log2(StatedMonthlyIncome))) + geom_bar(binwidth = 0.1,fill = "deeppink")
+p15 <- ggplot(data = loan_data,aes(x = log10(StatedMonthlyIncome))) + geom_bar(binwidth = 0.01, fill = "deeppink3")
+grid.arrange(p13,p14,p15,ncol = 2)
+
+```
+
+
+Looking at three different transformations they all seem succesful in distrbuting the data.A logistic transformation has eliminated the extreme values. 
+
+
+
+### ProsperScore and Credit score
+```{r}
+p16 <- ggplot(data = loan_data,aes(x = ProsperScore)) + geom_bar(color = "firebrick1", fill = "goldenrod3") 
+p17 <- ggplot(data = loan_data,aes(x = average_cs)) + geom_bar(fill = "firebrick1", color = "goldenrod3") 
+grid.arrange(p16,p17,ncol =1)
+```
+
+
+The prosper score and credit score seem well distributed as well. The average credit score is an an average of a lower bund and an upper bound of credit score. Both variables seem to be factors and discrete but could be manipulated into an continuous identity. 
+
+
+###Geographical Distribution(States)
+```{r}
+ggplot() + geom_polygon(data= map_loan_final, aes(x=long, y=lat, group = group, fill=map_loan_final$count),colour="white") +
+  scale_fill_continuous(low = "peachpuff1", high = "peachpuff4", guide="colorbar") +
+  theme_bw()  +
+  labs(title = "Count of loan disbursement based on prosper data across the US",fill = "count") +
+  scale_y_continuous(breaks=c()) + 
+  scale_x_continuous(breaks=c()) + 
+  theme(panel.border =  element_blank())
+
+```
+
+
+Now when we look at how data has been spread across the states. California seems to have the most loan disbursements. These are all prosper data and could be explained beacuse prosper is an organization based of off california. Besides california there are quiet the amount of users in new york, texas and florida as well. The lowest amount of users were prsent in North Dokota. The other minimal users were in Maine, Wyomming and North Dokata to name a few states. The influence of prosper can be seen in about a little more than half the amount of states. The disbursemnt are given below.
+
+
+```{r}
+summary(map_loan$count)
+```
+
+
+
+
+
+###Homewonership
+
+Homeownership is a factor that can give insights into loan disbursemnt. Prosper has stated it doesnt take collateral so it could be into another insight as too whether prosper would really consider this variable or not. Ownership is a bianary output of a yes or no.
+There might be a good amount of manipulation and thsi could split the interpretation into two polar directions. Though it is a good insight tool and will help give key insight.
+
+
+```{r}
+summary(loan_data$IsBorrowerHomeowner)
+```
+
+
+Seems to be more interesting as the data split 50/50 one could argue of even sprad and distribution as well. This could really add dimension to the model.
+
+###Investors
+
+```{r}
+ggplot(data =loan_data,aes(x = Investors)) + geom_bar(binwidth = 0.1) +scale_x_continuous(lim = c(0,10),breaks = seq(0,10,1))
+```
+
+
+Most of the data has only a single investor. This skewness is unproportional. A correlation test in bivariate analyses shows no real relation to any of the variables. This could be due to the oddness of the data frequency. Very little options in remodelling leves me to drop this variable.
+
+
+##Bivariate Analysis
+
+```{r}
+cor_data <- select(loan_data,-Occupation,-BorrowerState,-EmploymentStatus,-IsBorrowerHomeowner,-CreditScoreRangeLower,-CreditScoreRangeUpper,-IncomeRange)
+cor_data <- subset(cor_data,!is.na(ProsperScore))
+cor_data <- subset(cor_data,!is.na(EmploymentStatusDuration))
+cor_result <- cor(cor_data, method = "pearson")
+cor_result
+```
+
+
+The test that all numeric variables went through was the pearson correlation test. The test compares values on a scale of -1 to 1. The closer the score is the two extremes the stronger the correlation. The closer the score is to 0, indicates a poor relationship so looking at anything about -0.2-0.2 would have little to none correlation with each other.
+Looking at the coorelation rate and yeild share a very strong correlation. But is showing poor relations with the other factors such as income. Another interesting observation is of loan amount across the variables it seems to have a mediocre correlation with all the variables.
+	
+###APR vs RATE	
+
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerAPR,y = BorrowerRate))+geom_point(alpha = 0.2, color = "pink") + geom_smooth(method = 'lm') 
+```
+
+
+Borrower APR and rate are most probably very interelated.  There could be homoscedacity present amongst the two variables. This would mean that the two variables would share similar variances.
+
+###APR vs Yield
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerAPR,y = LenderYield))+geom_point(alpha = 0.2, color = "pink") + geom_smooth(method = 'lm') 
+```
+
+
+There seems to be similar relationship between these two variables as well.
+
+###Yield vs Rate
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerRate,y = LenderYield))+geom_point(alpha = 0.2, color = "orange") + geom_smooth(method = 'lm') 
+```
+
+This is bewteen LenderYield and borrower rate.The data seems more stuck together than any other relation with the data. Data such as these could bring multicollinearity issues. 
+
+###ProsperScore vs APR
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = factor(ProsperScore)))+geom_boxplot() 
+```
+
+A look at prosper score as a discrete factor against APR show how each score recieves different interest rates. There are some rates for score which are out of the mean range and are out of the ordinary such as a Prosper score of 1 getting a rate below 20% or a prosper score of 10 getting a rate of 38%. Besides some odities it seems that a good prosper score can get you a good interest rate.
+
+###Loan Original Amount vs ProsperScore
+```{r}
+ggplot(data = loan_data,aes(y = LoanOriginalAmount,x = factor(ProsperScore)))+geom_boxplot() 
+```
+
+As you can see when you compare the score with loan ammounts you see a simmilar trend where better scores give you more amounts of money. The only interseting point is that a prosper score of 8 would has higher amounts of loan disbrsemnets than of score 9.
+
+### APR vs credit score
+```{r}
+ggplot(data = subset(loan_data, !is.na(average_cs)),aes(y = BorrowerAPR,x = average_cs))+geom_smooth()
+```
+
+
+BorrowerAPR or the interest rate seems inversely related to credit score. As the credit score gets good the rates go down.
+
+
+
+###Loan amount vs credit score
+```{r}
+ggplot(data = subset(loan_data, !is.na(average_cs)),aes(y = LoanOriginalAmount,x = average_cs))+geom_smooth()
+```
+
+
+The relation seen is that as the cs score and loan disbursement is positive. Hence we can see that the credit score is similar to prosper score.
+
+### Credit score vs Prosper score
+```{r}
+ggplot(data = loan_data,aes(x =ProsperScore,y = average_cs))+geom_smooth()
+```
+
+
+The relationship between prosper score and average credit score also seems to be positive and a higher credit score results in higher prosper score. Note that most credits scores are above 550 and credit score which account for prosper scores are only as low as 660.
+
+### APR vs Estimated Loss
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = EstimatedLoss))+geom_jitter(alpha = 0.5, color = "purple") + geom_smooth()
+```
+
+
+It can be seen that a increase in loss estimate results in an increase in rates this would probably be so the lenders can recover money. Over a certain loss amount the rates stop which means there is probably a threshold on which lenders are willing to risk money.
+
+###APR vs Estimated Effective yield
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = EstimatedEffectiveYield))+geom_jitter(alpha = 0.2, color = "purple") + geom_smooth(method = "lm") + coord_flip()
+```
+
+
+Yield seems to be possitive to the rates charged. This would mean that yield is an outcome of the interest  rate. When we look at it as a reverse function where { 
+      f(x) = APR 
+          || [yield = f(x)] || or 
+              f(y=APR) = y(yield) / f(n) where} 
+              (f(x)  = mx + c or        f(n)x a linear/non linear variation) 
+              f(n) = is a numerical function from w/o variables from f(x)
+              
+
+
+###Stated income vs APR
+
+```{r}
+ggplot(data = subset(loan_data, StatedMonthlyIncome < 50000),aes(x = BorrowerAPR,y = StatedMonthlyIncome))+geom_jitter(alpha = 0.5, color = "purple") + geom_smooth()
+```
+
+
+With a stated monthley income it looks like it does not have much effect on the rates. The incomes have been subseted removing extreme values.
+
+### Stated Income vs Loan Amount
+
+```{r}
+ggplot(data = subset(loan_data, StatedMonthlyIncome < 50000),aes(x = LoanOriginalAmount,y = StatedMonthlyIncome))+geom_jitter(alpha = 0.2, color = "grey") + geom_smooth(color = "red",linetype = 2)
+```
+
+
+The stated Monethly income has a better realtion with the original loan amount.It shows how having a larger income source enables you for a larger loan amount.
+
+### APR vs Loan amount
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerAPR,y = LoanOriginalAmount))+geom_jitter(alpha = 0.1, color = "Maroon")
+```
+
+
+The relationship between loan amount and apr doesn't seem to be the strongest. The correlation test stated that the correlation was -0.41 which i believe is a fair prediction. The only thing to be noted is that the prediction was made for a subset of about half the data. Nonetheless it seems to be somewhere around what the original values would be. A negative relationship can be seen in the graph as well. Without subsets the relation ships is -0.3 which i believe could be because of extremes in data. The result of -0.42 can be seen when we filter out all data without prosper scores which leaves a subset of about 70,000 data.
+
+###EmployementStatus Duration vs APR
+```{r}
+ggplot(data = loan_data,aes(x = BorrowerAPR,y = EmploymentStatusDuration))+geom_jitter(alpha = 0.1, color = "Maroon")
+```
+
+
+There seems to be a similar situation between the stated employement days and interest rate. Hence we can say that the employement duration is a non factor for the case with prosper variables and at the end of the dropping this would be my next step as it doesnt share any concrete realtion with any variable.
+
+###Average loan amounts geographically and average rates geographically
+```{r}
+ggplot() + geom_polygon(data= map_loan_final, aes(x=long, y=lat, group = group, fill=map_loan_final$averageAPR),colour="white") +
+scale_fill_continuous(low = "thistle2", high = "darkred", guide="colorbar") +
+theme_bw()  +
+labs(title = "Average loan rates based on prosper data across the US",fill = "Average APR") +
+scale_y_continuous(breaks=c()) + 
+scale_x_continuous(breaks=c()) + 
+theme(panel.border =  element_blank())
+
+```
+
+
+For the interest rates floating around the US it can be seen that alot of the States have a high APR on their loans.
+
+
+```{r}
+summary(map_loan$averageAPR)
+```
+The lowest average rates could be seen in the states of Maine and Iowa.  The other states with low average rates include Alaska and District of columbia. Interest rates could be influenced by geographical and demographical factors as well. This would be another research.
+	Surprisingly high interest rates were in places like alabama and Arkansas. I was expecting states like new york and new New Jersey having high rates based on the economy surrounding these states but the top slots belong to many southern states.
+
+```{r}
+ggplot() + geom_polygon(data= map_loan_final, aes(x=long, y=lat, group = group, fill=map_loan_final$averageLA),colour="white") +
+  scale_fill_continuous(low = "royalblue1", high = "royalblue4", guide="colorbar") +
+  theme_bw()  +
+  labs(title = "Average loan disbursement based on prosper data across the US",fill = "Average disbursed amount") +
+  scale_y_continuous(breaks=c()) + 
+  scale_x_continuous(breaks=c()) + 
+  theme(panel.border =  element_blank())
+```
+
+
+
+
+Now when it comes to the highest disbursed amount through out the states, the largest average amounts were given to indiviudals from surprisingly the Distrivct of columbia. Alaska and New jersey the other states which recieved big amounts.
+
+
+
+```{r}
+summary(map_loan$averageLA)
+```
+
+
+Iowa, North Dokota and Maine were states with low disbursement of money.
+
+
+## Multivariate Analysis
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = LenderYield))+geom_jitter(alpha = 0.1,aes( color = loan_data$BorrowerRate))
+```
+
+
+
+
+There seems to be a common relationship between all three variables. All variables seem to increase with one another. They seem to come close of one another. The APR is a calculation of the the interest rate. Yield seems unusually correlated with the two rates. Yield is an earning off of the real amount for investors. The only analyses that can be done would be that in times of high interest rates yield's would go up. Based on the prosper data and likely within prosper's market.
+
+
+
+
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = LoanOriginalAmount))+geom_jitter(alpha = 0.5,aes( color = loan_data$average_cs)) + facet_wrap(~IsBorrowerHomeowner) + scale_color_gradient(low = "#D2B4DE", high = "#6C3483",space = "Lab", guide = "colourbar") + geom_smooth()
+```
+
+
+
+Now we look at three factors, the credit score , loan amount and APR with two different scenarios one where the borrower is a houseowner and another where they are not. What we see is that there is not much difference based on whether the person is a homeowner or not. Besides that we can see a negative relation between interest rate and Loan amount. This is still not the strongest but now we can make assumptions about how to get lower rates. Credit score seems to suggest that the loans are related to the credit score but there is a mix of good and bad credit scores getting good and bad loan rates. Also based on being a homeowner or not, it does not make much of a difference but if you look at the plots you see a higher concentraion of loan give aways for loans of value greater than 25,000 to people who are home owners. 
+
+
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = ProsperScore))+geom_point(aes( color = loan_data$average_cs, size = loan_data$LoanOriginalAmount),alpha =0.1) + scale_color_gradient(low = "grey", high = "black",space = "Lab", guide = "colourbar") + geom_smooth()
+```
+
+
+
+The plots shows how propser score plays an important role in determining the loan amount and interest rate. Most of the credit scores prsent seem to be high, and higher prosper scores have higher credit scores.
+
+
+
+
+```{r}
+ggplot(data = loan_data,aes(y = BorrowerAPR,x = ProsperScore))+geom_point(alpha = 1,aes( color = loan_data$average_cs, size = loan_data$LoanOriginalAmount)) + facet_wrap(~EmploymentStatus) + scale_color_gradient(low = "royalblue1", high = "royalblue4",space = "Lab", guide = "colourbar") + geom_smooth()
+```
+
+
+
+
+Loooking at the Prosper Score we see an inverse trend. Good prosper scores alow for lower interest rates. The loan amount disbursed is the size of the bubble.It can be seen that retired poeple,unemployed or part timers are not recieving alot of loans. Surprisingly people who have listed them themselves as 'others' as their employment status have recieved alot of loans.
+
+
+
+```{r}
+ggplot(data = loan_data, aes(y = BorrowerAPR, x = Occupation)) + geom_boxplot(alpha = 0.5) + geom_point(aes(color = loan_data$LoanOriginalAmount),alpha = 0.1) + scale_color_gradient(low = "darkslategray1", high = "darkslategray4",space = "Lab", guide = "colourbar") + coord_flip()
+```
+
+
+
+
+When we look at the different occupations with the rates and the disbursement ammounts we see students and investors seem to have a very low rate going on.Loan disbursement ammounts seem to be higher in professions with higher pay. Surprisingly analyst are pretty much in the center or average of interest rates, talk about an ironicle situation(should we not be paid more?).
+
+
+```{r}
+est <- subset(loan_data,IncomeRange != "Not displayed" & IncomeRange != "Not employed" & IncomeRange != "$0")
+est$IncomeRange <- factor(est$IncomeRange, levels = c("$1-24,999","$25,000-49,999","$50,000-74,999","75,000-99,999","$100,000+"))
+ggplot(data = subset(est,!is.na(IncomeRange)), aes(y = BorrowerAPR, x = LoanOriginalAmount)) + geom_point(aes(color = IncomeRange)) + scale_color_brewer(type = "div")
+
+
+```
+
+
+
+
+Looking at the graph you can see that Income Range does play an effect int the loan recieved and the interest rates. The theory to this is being from a lower income bracket you can afford lower loan amounts but whuch come with and laons and rates have inverse relationship hence you will be recieving higher interest rates.
+
+
+
+
+```{r}
+est <- subset(loan_data,IncomeRange != "Not displayed" & IncomeRange != "Not employed" & IncomeRange != "$0")
+est$IncomeRange <- factor(est$IncomeRange, levels = c("$1-24,999","$25,000-49,999","$50,000-74,999","75,000-99,999","$100,000+"))
+ggplot(data = subset(est,!is.na(IncomeRange)), aes(y = BorrowerAPR, x = LoanOriginalAmount)) + geom_jitter(aes(color = IncomeRange),alpha = 0.88) + scale_color_brewer(type = "qual") + facet_wrap(~IsBorrowerHomeowner)
+```
+
+
+
+It can also be seen that most income earners of 100,000 or more are house owners as well. They have also recieved larger amounts of loan. Could it be argued that you stand a chance of recieving higher loans if you have more collateral(a question asked in general not based on prosper data)? 
+
+
+
+
+
+```{r}
+ggplot(data = loan_data, aes(y = BorrowerAPR, x = EstimatedEffectiveYield)) +  geom_jitter(aes(color = EstimatedLoss, size = LoanOriginalAmount),alpha = 0.5 ) 
+```
+
+
+
+When looking at estimated effective yield and the APR, you see a positive relation at most parts. The yield extends to a negative part as well. When yeild is coming from a negative to zero apr is decresing and when yield is positive and increasing so is APR. They both have a direct relationship with each other. loss seems to be higher with negative yield. Loss seems to be lowest where yield and apr are lowest. There are a few big loan amounts where yield is neagative and loss is high.
+
+
+
+```{r}
+est <- subset(loan_data,IncomeRange != "Not displayed" & IncomeRange != "Not employed" & IncomeRange != "$0")
+est$IncomeRange <- factor(est$IncomeRange, levels = c("$1-24,999","$25,000-49,999","$50,000-74,999","75,000-99,999","$100,000+"))
+ggplot(data = subset(est,!is.na(IncomeRange)), aes(x = EstimatedEffectiveYield, y = EstimatedLoss)) + geom_point(aes(color = factor(ProsperScore)),alpha = 0.88) + scale_color_brewer(type = "div") + facet_wrap(~IncomeRange) 
+```
+
+
+
+It can be seen though that low prosper scores are predicted to bring losses so high interest rates are immediately charged to them. Good scores do get good rates but are not expected to churn out good yield amounts.
+
+
+
+```{r}
+est <- subset(loan_data,IncomeRange != "Not displayed" & IncomeRange != "Not employed" & IncomeRange != "$0")
+est$IncomeRange <- factor(est$IncomeRange, levels = c("$1-24,999","$25,000-49,999","$50,000-74,999","75,000-99,999","$100,000+"))
+ggplot(data = subset(est,!is.na(IncomeRange)), aes(y = BorrowerAPR, x = LoanOriginalAmount)) + geom_point(aes(color = factor(ProsperScore)),alpha = 0.88) + scale_color_brewer(type = "div") + facet_wrap(~IncomeRange) 
+```
+
+
+
+What can be seen is that there are alot of users who have an income of 100,000 or more. In general poop prosper scores result in higher interest rates and good prosper scores give you good rates. and the people who have recieved large loan amounts have a high income, have great prosper scores and have recieved good interest rates.
+
+
+##Conclusion
+
+After the long analysis and taking a look at all the different vairables in different forms it does make a story. Prosper lends out money mainly of smaller amounts to prospective borrowers. Prosper has its client base mainly around California but it caters to people all across the United States. Prosper has a two way system of borrowing and lending which could be interepreted in to completely unique ways. Prosper has a clients with different types of occupation but most of them have remained confidential and stated themselves as others.
+  When considering the mechanism behind their lending services it seems that a lot of it depends on the users history of the person as well. I was unable to do a dynamic analysis with time into factor but as you use the service and work on your ProsperScore you get better deals. A good way to get a step a head in the game would be have a good credit score. It influences the rates and loan recieved. The prosper score seems to become one of the most important factors for a loan. It helps having a high anual icnome as well.
+    Lastly I would like to note that alot of the variables are highly correlated to one another. They could be a part of a larger financial function which if not developed can be looked into. It would be very interesting
+
+###Further Investigations
+
+My hope is that this analyses can be be transfered into a linear model later on which would be my next task on Prosper Scores. The real data set has 81 variables so i without looking at the rest of them and getting them into the research as well it will be hard to make a good analytical model. 
+
